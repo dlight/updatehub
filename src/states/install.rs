@@ -4,39 +4,45 @@
 //
 
 use failure::{Error, ResultExt};
-use states::{Idle, Reboot, State, StateChangeImpl, StateMachine};
+use firmware::Metadata;
+use runtime_settings::RuntimeSettings;
+use settings::Settings;
+use states::{reboot::Reboot, State};
 use update_package::UpdatePackage;
 
 #[derive(Debug, PartialEq)]
-pub struct Install {
-    pub update_package: UpdatePackage,
+pub(crate) struct Install {
+    pub(crate) settings: Settings,
+    pub(crate) runtime_settings: RuntimeSettings,
+    pub(crate) firmware: Metadata,
+    pub(crate) update_package: UpdatePackage,
 }
 
-create_state_step!(Install => Idle);
-create_state_step!(Install => Reboot);
-
-impl StateChangeImpl for State<Install> {
+impl State for Install {
     // FIXME: When adding state-chance hooks, we need to go to Idle if
     // cancelled.
-    fn handle(mut self) -> Result<StateMachine, Error> {
-        info!(
-            "Installing update: {}",
-            self.state.update_package.package_uid()
-        );
+    fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
+        let s = *self; // Drop when NLL is stable
+        let settings = s.settings;
+        let mut runtime_settings = s.runtime_settings;
+        let firmware = s.firmware;
+        let update_package = s.update_package;
+
+        info!("Installing update: {}", update_package.package_uid());
 
         // FIXME: Check if A/B install
         // FIXME: Check InstallIfDifferent
 
         // Ensure we do a probe as soon as possible so full update
         // cycle can be finished.
-        self.runtime_settings.polling.now = true;
+        runtime_settings.polling.now = true;
 
         // Avoid installing same package twice.
-        self.applied_package_uid = Some(self.state.update_package.package_uid());
+        let applied_package_uid = Some(update_package.package_uid());
 
-        if !self.settings.storage.read_only {
+        if !settings.storage.read_only {
             debug!("Saving install settings.");
-            self.runtime_settings
+            runtime_settings
                 .save()
                 .context("Saving runtime due install changes")?;
         } else {
@@ -44,7 +50,12 @@ impl StateChangeImpl for State<Install> {
         }
 
         info!("Update installed successfully");
-        Ok(StateMachine::Reboot(self.into()))
+        Ok(Box::new(Reboot {
+            settings,
+            runtime_settings,
+            firmware,
+            applied_package_uid,
+        }))
     }
 }
 
@@ -60,26 +71,16 @@ fn has_package_uid_if_succeed() {
     let tmpfile = tmpfile.path();
     fs::remove_file(&tmpfile).unwrap();
 
-    let machine = StateMachine::Install(State {
+    let machine = Box::new(Install {
         settings: Settings::default(),
         runtime_settings: RuntimeSettings::new()
             .load(tmpfile.to_str().unwrap())
             .unwrap(),
         firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
-        applied_package_uid: None,
-        state: Install {
-            update_package: get_update_package(),
-        },
-    }).move_to_next_state();
+        update_package: get_update_package(),
+    }).handle();
 
-    match machine {
-        Ok(StateMachine::Reboot(s)) => assert_eq!(
-            s.applied_package_uid,
-            Some(get_update_package().package_uid())
-        ),
-        Ok(s) => panic!("Invalid success: {:?}", s),
-        Err(e) => panic!("Invalid error: {:?}", e),
-    }
+    assert_state!(machine, Reboot);
 }
 
 #[test]
@@ -94,21 +95,14 @@ fn polling_now_if_succeed() {
     let tmpfile = tmpfile.path();
     fs::remove_file(&tmpfile).unwrap();
 
-    let machine = StateMachine::Install(State {
+    let machine = Box::new(Install {
         settings: Settings::default(),
         runtime_settings: RuntimeSettings::new()
             .load(tmpfile.to_str().unwrap())
             .unwrap(),
         firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
-        applied_package_uid: None,
-        state: Install {
-            update_package: get_update_package(),
-        },
-    }).move_to_next_state();
+        update_package: get_update_package(),
+    }).handle();
 
-    match machine {
-        Ok(StateMachine::Reboot(s)) => assert_eq!(s.runtime_settings.polling.now, true),
-        Ok(s) => panic!("Invalid success: {:?}", s),
-        Err(e) => panic!("Invalid error: {:?}", e),
-    }
+    assert_state!(machine, Reboot);
 }

@@ -5,17 +5,30 @@
 
 use easy_process;
 use failure::Error;
-use states::{Idle, State, StateChangeImpl, StateMachine};
+use firmware::Metadata;
+use runtime_settings::RuntimeSettings;
+use settings::Settings;
+use states::{idle::Idle, State};
 
 #[derive(Debug, PartialEq)]
-pub struct Reboot {}
+pub(crate) struct Reboot {
+    pub(crate) settings: Settings,
+    pub(crate) runtime_settings: RuntimeSettings,
+    pub(crate) firmware: Metadata,
+    pub(crate) applied_package_uid: Option<String>,
+}
 
-create_state_step!(Reboot => Idle);
-
-impl StateChangeImpl for State<Reboot> {
+/// Implements the state change for `Reboot`.
+impl State for Reboot {
     // FIXME: When adding state-chance hooks, we need to go to Idle if
     // cancelled.
-    fn handle(self) -> Result<StateMachine, Error> {
+    fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
+        let s = *self; // Drop when NLL is stable
+        let settings = s.settings;
+        let runtime_settings = s.runtime_settings;
+        let firmware = s.firmware;
+        let applied_package_uid = s.applied_package_uid;
+
         info!("Triggering reboot");
         let output = easy_process::run("reboot")?;
         if !output.stdout.is_empty() || !output.stderr.is_empty() {
@@ -24,7 +37,13 @@ impl StateChangeImpl for State<Reboot> {
                 output.stdout, output.stderr
             );
         }
-        Ok(StateMachine::Idle(self.into()))
+
+        Ok(Box::new(Idle {
+            settings,
+            runtime_settings,
+            firmware,
+            applied_package_uid,
+        }))
     }
 }
 
@@ -73,15 +92,13 @@ mod test {
             ),
         );
 
-        let machine = StateMachine::Reboot(State {
+        let machine = Box::new(Reboot {
             settings: Settings::default(),
             runtime_settings: RuntimeSettings::default(),
             firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
             applied_package_uid: None,
-            state: Reboot {},
-        }).move_to_next_state();
+        }).handle();
 
-        assert!(machine.is_ok(), "Error: {:?}", machine);
         assert_state!(machine, Idle);
     }
 }

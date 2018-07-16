@@ -22,6 +22,7 @@
 
 #[macro_use]
 mod macros;
+
 mod download;
 mod idle;
 mod install;
@@ -30,103 +31,90 @@ mod poll;
 mod probe;
 mod reboot;
 
-pub use self::{
-    download::Download, idle::Idle, install::Install, park::Park, poll::Poll, probe::Probe,
-    reboot::Reboot,
-};
-
 use failure::Error;
 use firmware::Metadata;
 use runtime_settings::RuntimeSettings;
 use settings::Settings;
+use states::{idle::Idle, park::Park};
+use std::any::TypeId;
 
-pub trait StateChangeImpl {
-    fn handle(self) -> Result<StateMachine, Error>;
+pub fn run(settings: Settings, runtime_settings: RuntimeSettings, firmware: Metadata) {
+    inner_runner(Box::new(Idle {
+        settings,
+        runtime_settings,
+        firmware,
+        applied_package_uid: None,
+    }));
 }
 
-/// Holds the `State` type and common data, which is available for
-/// every state transition.
-#[derive(Debug, PartialEq)]
-pub struct State<S>
-where
-    State<S>: StateChangeImpl,
-{
-    /// System settings.
-    settings: Settings,
-
-    /// Runtime settings.
-    runtime_settings: RuntimeSettings,
-
-    /// Firmware metadata.
-    firmware: Metadata,
-
-    /// Package UID applied
-    applied_package_uid: Option<String>,
-
-    /// State type with specific data and methods.
-    state: S,
-}
-
-/// The struct representing the state machine.
-#[derive(Debug, PartialEq)]
-pub enum StateMachine {
-    /// Park state
-    Park(State<Park>),
-
-    /// Idle state
-    Idle(State<Idle>),
-
-    /// Poll state
-    Poll(State<Poll>),
-
-    /// Probe state
-    Probe(State<Probe>),
-
-    /// Download state
-    Download(State<Download>),
-
-    /// Install state
-    Install(State<Install>),
-
-    /// Reboot state
-    Reboot(State<Reboot>),
-}
-
-impl StateMachine {
-    pub fn new(settings: Settings, runtime_settings: RuntimeSettings, firmware: Metadata) -> Self {
-        StateMachine::Idle(State {
-            settings,
-            runtime_settings,
-            firmware,
-            applied_package_uid: None,
-            state: Idle {},
-        })
+fn inner_runner(state: Box<State>) {
+    match state.handle() {
+        Ok(ref s) if s.downcast_ref::<Park>().is_some() => {
+            debug!("Parking state machine.");
+            return;
+        }
+        Ok(s) => inner_runner(s),
+        Err(e) => panic!("{}", e),
     }
+}
 
-    pub fn run(self) {
-        self.step()
+pub trait State {
+    fn handle(self: Box<Self>) -> Result<Box<State>, Error>;
+
+    fn __private_get_type_id__(&self) -> TypeId
+    where
+        Self: 'static,
+    {
+        TypeId::of::<Self>()
     }
+}
 
-    fn step(self) {
-        match self.move_to_next_state() {
-            Ok(StateMachine::Park(_)) => {
-                debug!("Parking state machine.");
-                return;
-            }
-            Ok(s) => s.run(),
-            Err(e) => panic!("{}", e),
+impl State {
+    fn downcast_ref<S: State + 'static>(&self) -> Option<&S> {
+        if self.__private_get_type_id__() == TypeId::of::<S>() {
+            unsafe { Some(&*(self as *const State as *const S)) }
+        } else {
+            None
         }
     }
 
-    fn move_to_next_state(self) -> Result<StateMachine, Error> {
-        match self {
-            StateMachine::Park(s) => Ok(s.handle()?),
-            StateMachine::Idle(s) => Ok(s.handle()?),
-            StateMachine::Poll(s) => Ok(s.handle()?),
-            StateMachine::Probe(s) => Ok(s.handle()?),
-            StateMachine::Download(s) => Ok(s.handle()?),
-            StateMachine::Install(s) => Ok(s.handle()?),
-            StateMachine::Reboot(s) => Ok(s.handle()?),
+    #[cfg(test)]
+    fn is<T: State + 'static>(&self) -> bool {
+        self.__private_get_type_id__() == TypeId::of::<T>()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct A {}
+    impl State for A {
+        fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
+            Ok(Box::new(B {}))
         }
+    }
+
+    struct B {}
+    impl State for B {
+        fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
+            Ok(Box::new(A {}))
+        }
+    }
+
+    #[test]
+    fn assert_works() {
+        let to_b = Box::new(A {}).handle();
+        assert_state!(to_b, B);
+
+        let to_a = Box::new(B {}).handle();
+        assert_state!(to_a, A);
+    }
+
+    #[test]
+    #[should_panic]
+    fn must_fail() {
+        let to_b = Box::new(A {}).handle();
+        assert_state!(to_b, A);
     }
 }

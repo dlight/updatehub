@@ -4,16 +4,34 @@
 //
 
 use failure::Error;
-use states::{State, StateChangeImpl, StateMachine};
+use firmware::Metadata;
+use runtime_settings::RuntimeSettings;
+use settings::Settings;
+use states::State;
 
 #[derive(Debug, PartialEq)]
-pub struct Park {}
+pub(crate) struct Park {
+    pub(crate) settings: Settings,
+    pub(crate) runtime_settings: RuntimeSettings,
+    pub(crate) firmware: Metadata,
+    pub(crate) applied_package_uid: Option<String>,
+}
 
-/// Implements the state change for `State<Park>`. It stays in
-/// `State<Park>` state.
-impl StateChangeImpl for State<Park> {
-    fn handle(self) -> Result<StateMachine, Error> {
+/// Implements the state change for `Park`. It stays in `Park` state.
+impl State for Park {
+    fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
+        let s = *self; // Drop when NLL is stable
+        let settings = s.settings;
+        let runtime_settings = s.runtime_settings;
+        let firmware = s.firmware;
+        let applied_package_uid = s.applied_package_uid;
+
         debug!("Staying on Park state.");
-        Ok(StateMachine::Park(self))
+        Ok(Box::new(Park {
+            settings,
+            runtime_settings,
+            firmware,
+            applied_package_uid,
+        }))
     }
 }

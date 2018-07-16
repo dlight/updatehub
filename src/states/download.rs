@@ -5,32 +5,39 @@
 
 use client::Api;
 use failure::Error;
-use states::{Idle, Install, State, StateChangeImpl, StateMachine};
+use firmware::Metadata;
+use runtime_settings::RuntimeSettings;
+use settings::Settings;
+use states::{install::Install, State};
 use std::fs;
 use update_package::{ObjectStatus, UpdatePackage};
 use walkdir::WalkDir;
 
 #[derive(Debug, PartialEq)]
-pub struct Download {
-    pub update_package: UpdatePackage,
+pub(crate) struct Download {
+    pub(crate) settings: Settings,
+    pub(crate) runtime_settings: RuntimeSettings,
+    pub(crate) firmware: Metadata,
+    pub(crate) update_package: UpdatePackage,
 }
 
-create_state_step!(Download => Idle);
-create_state_step!(Download => Install(update_package));
+impl State for Download {
+    fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
+        let s = *self; // Drop when NLL is stable
+        let settings = s.settings;
+        let runtime_settings = s.runtime_settings;
+        let firmware = s.firmware;
+        let update_package = s.update_package;
 
-impl StateChangeImpl for State<Download> {
-    fn handle(self) -> Result<StateMachine, Error> {
         // Prune left over from previous installations
-        for entry in WalkDir::new(&self.settings.update.download_dir)
+        for entry in WalkDir::new(&settings.update.download_dir)
             .follow_links(true)
             .min_depth(1)
             .into_iter()
             .filter_entry(|e| e.file_type().is_file())
             .filter_map(|e| e.ok())
             .filter(|e| {
-                !self
-                    .state
-                    .update_package
+                !update_package
                     .objects()
                     .iter()
                     .map(|o| o.sha256sum())
@@ -41,37 +48,31 @@ impl StateChangeImpl for State<Download> {
         }
 
         // Prune corrupted files
-        for object in self
-            .state
-            .update_package
-            .filter_objects(&self.settings, &ObjectStatus::Corrupted)
-        {
-            fs::remove_file(&self.settings.update.download_dir.join(object.sha256sum()))?;
+        for object in update_package.filter_objects(&settings, &ObjectStatus::Corrupted) {
+            fs::remove_file(&settings.update.download_dir.join(object.sha256sum()))?;
         }
 
         // Download the missing or incomplete objects
-        for object in self
-            .state
-            .update_package
-            .filter_objects(&self.settings, &ObjectStatus::Missing)
+        for object in update_package
+            .filter_objects(&settings, &ObjectStatus::Missing)
             .into_iter()
-            .chain(
-                self.state
-                    .update_package
-                    .filter_objects(&self.settings, &ObjectStatus::Incomplete),
-            ) {
-            Api::new(&self.settings, &self.runtime_settings, &self.firmware)
-                .download_object(&self.state.update_package.package_uid(), object.sha256sum())?;
+            .chain(update_package.filter_objects(&settings, &ObjectStatus::Incomplete))
+        {
+            Api::new(&settings, &runtime_settings, &firmware)
+                .download_object(&update_package.package_uid(), object.sha256sum())?;
         }
 
-        if self
-            .state
-            .update_package
+        if update_package
             .objects()
             .iter()
-            .all(|o| o.status(&self.settings.update.download_dir).ok() == Some(ObjectStatus::Ready))
+            .all(|o| o.status(&settings.update.download_dir).ok() == Some(ObjectStatus::Ready))
         {
-            Ok(StateMachine::Install(self.into()))
+            Ok(Box::new(Install {
+                settings,
+                runtime_settings,
+                firmware,
+                update_package,
+            }))
         } else {
             bail!("Not all objects are ready for use")
         }
@@ -90,15 +91,12 @@ fn skip_download_if_ready() {
     let _ = create_dir_all(&tmpdir);
     let _ = create_fake_object(&settings);
 
-    let machine = StateMachine::Download(State {
+    let machine = Box::new(Download {
         settings: settings,
         runtime_settings: RuntimeSettings::default(),
         firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
-        applied_package_uid: None,
-        state: Download {
-            update_package: get_update_package(),
-        },
-    }).move_to_next_state();
+        update_package: get_update_package(),
+    }).handle();
 
     assert_state!(machine, Install);
 
@@ -148,15 +146,12 @@ fn download_objects() {
         .with_body("1234567890")
         .create();
 
-    let machine = StateMachine::Download(State {
+    let machine = Box::new(Download {
         settings: settings,
         runtime_settings: RuntimeSettings::default(),
         firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
-        applied_package_uid: None,
-        state: Download {
-            update_package: update_package,
-        },
-    }).move_to_next_state();
+        update_package: update_package,
+    }).handle();
 
     mock.assert();
 
