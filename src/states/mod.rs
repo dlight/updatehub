@@ -39,23 +39,23 @@ use states::{idle::Idle, park::Park};
 use std::any::TypeId;
 
 pub fn run(settings: Settings, runtime_settings: RuntimeSettings, firmware: Metadata) {
+    fn inner_runner(state: Box<State>) {
+        match state.handle() {
+            Ok(ref s) if s.downcast_ref::<Park>().is_some() => {
+                debug!("Parking state machine.");
+                return;
+            }
+            Ok(s) => inner_runner(s),
+            Err(e) => panic!("{}", e),
+        }
+    }
+
     inner_runner(Box::new(Idle {
         settings,
         runtime_settings,
         firmware,
         applied_package_uid: None,
     }));
-}
-
-fn inner_runner(state: Box<State>) {
-    match state.handle() {
-        Ok(ref s) if s.downcast_ref::<Park>().is_some() => {
-            debug!("Parking state machine.");
-            return;
-        }
-        Ok(s) => inner_runner(s),
-        Err(e) => panic!("{}", e),
-    }
 }
 
 pub trait State {
