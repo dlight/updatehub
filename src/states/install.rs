@@ -4,18 +4,22 @@
 //
 
 use failure::{Error, ResultExt};
-use firmware::Metadata;
-use runtime_settings::RuntimeSettings;
-use settings::Settings;
-use states::{reboot::Reboot, State};
+use states::{reboot::Reboot, InnerState, State};
 use update_package::UpdatePackage;
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct Install {
-    pub(crate) settings: Settings,
-    pub(crate) runtime_settings: RuntimeSettings,
-    pub(crate) firmware: Metadata,
+    pub(crate) inner: InnerState,
     pub(crate) update_package: UpdatePackage,
+}
+
+impl Install {
+    pub fn new(inner: InnerState, update_package: UpdatePackage) -> Box<State> {
+        Box::new(Self {
+            inner,
+            update_package,
+        })
+    }
 }
 
 impl State for Install {
@@ -23,9 +27,9 @@ impl State for Install {
     // cancelled.
     fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
         let s = *self; // Drop when NLL is stable
-        let settings = s.settings;
-        let mut runtime_settings = s.runtime_settings;
-        let firmware = s.firmware;
+        let settings = s.inner.settings;
+        let mut runtime_settings = s.inner.runtime_settings;
+        let firmware = s.inner.firmware;
         let update_package = s.update_package;
 
         info!("Installing update: {}", update_package.package_uid());
@@ -50,12 +54,14 @@ impl State for Install {
         }
 
         info!("Update installed successfully");
-        Ok(Box::new(Reboot {
-            settings,
-            runtime_settings,
-            firmware,
+        Ok(Reboot::new(
+            InnerState {
+                settings,
+                runtime_settings,
+                firmware,
+            },
             applied_package_uid,
-        }))
+        ))
     }
 }
 
@@ -71,14 +77,16 @@ fn has_package_uid_if_succeed() {
     let tmpfile = tmpfile.path();
     fs::remove_file(&tmpfile).unwrap();
 
-    let machine = Box::new(Install {
-        settings: Settings::default(),
-        runtime_settings: RuntimeSettings::new()
-            .load(tmpfile.to_str().unwrap())
-            .unwrap(),
-        firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
-        update_package: get_update_package(),
-    }).handle();
+    let machine = Install::new(
+        InnerState {
+            settings: Settings::default(),
+            runtime_settings: RuntimeSettings::new()
+                .load(tmpfile.to_str().unwrap())
+                .unwrap(),
+            firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
+        },
+        get_update_package(),
+    ).handle();
 
     assert_state!(machine, Reboot);
 }
@@ -95,14 +103,16 @@ fn polling_now_if_succeed() {
     let tmpfile = tmpfile.path();
     fs::remove_file(&tmpfile).unwrap();
 
-    let machine = Box::new(Install {
-        settings: Settings::default(),
-        runtime_settings: RuntimeSettings::new()
-            .load(tmpfile.to_str().unwrap())
-            .unwrap(),
-        firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
-        update_package: get_update_package(),
-    }).handle();
+    let machine = Install::new(
+        InnerState {
+            settings: Settings::default(),
+            runtime_settings: RuntimeSettings::new()
+                .load(tmpfile.to_str().unwrap())
+                .unwrap(),
+            firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
+        },
+        get_update_package(),
+    ).handle();
 
     assert_state!(machine, Reboot);
 }

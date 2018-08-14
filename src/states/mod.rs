@@ -50,12 +50,21 @@ pub fn run(settings: Settings, runtime_settings: RuntimeSettings, firmware: Meta
         }
     }
 
-    inner_runner(Box::new(Idle {
-        settings,
-        runtime_settings,
-        firmware,
-        applied_package_uid: None,
-    }));
+    inner_runner(Idle::new(
+        InnerState {
+            settings,
+            runtime_settings,
+            firmware,
+        },
+        None,
+    ));
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) struct InnerState {
+    pub(crate) settings: Settings,
+    pub(crate) runtime_settings: RuntimeSettings,
+    pub(crate) firmware: Metadata,
 }
 
 pub trait State {

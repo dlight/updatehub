@@ -4,17 +4,21 @@
 //
 
 use failure::Error;
-use firmware::Metadata;
-use runtime_settings::RuntimeSettings;
-use settings::Settings;
-use states::{park::Park, poll::Poll, State};
+use states::{park::Park, poll::Poll, InnerState, State};
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct Idle {
-    pub(crate) settings: Settings,
-    pub(crate) runtime_settings: RuntimeSettings,
-    pub(crate) firmware: Metadata,
+    pub(crate) inner: InnerState,
     pub(crate) applied_package_uid: Option<String>,
+}
+
+impl Idle {
+    pub fn new(inner: InnerState, applied_package_uid: Option<String>) -> Box<State> {
+        Box::new(Self {
+            inner,
+            applied_package_uid,
+        })
+    }
 }
 
 /// Implements the state change for `Idle`. If polling is disabled it
@@ -24,28 +28,32 @@ impl State for Idle {
     // Probe.
     fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
         let s = *self; // Drop when NLL is stable
-        let settings = s.settings;
-        let runtime_settings = s.runtime_settings;
-        let firmware = s.firmware;
+        let settings = s.inner.settings;
+        let runtime_settings = s.inner.runtime_settings;
+        let firmware = s.inner.firmware;
         let applied_package_uid = s.applied_package_uid;
 
         if !settings.polling.enabled {
             debug!("Polling is disabled, staying on Idle state.");
-            return Ok(Box::new(Park {
-                settings,
-                runtime_settings,
-                firmware,
+            return Ok(Park::new(
+                InnerState {
+                    settings,
+                    runtime_settings,
+                    firmware,
+                },
                 applied_package_uid,
-            }));
+            ));
         }
 
         debug!("Polling is enabled, moving to Poll state.");
-        Ok(Box::new(Poll {
-            settings,
-            runtime_settings,
-            firmware,
+        Ok(Poll::new(
+            InnerState {
+                settings,
+                runtime_settings,
+                firmware,
+            },
             applied_package_uid,
-        }))
+        ))
     }
 }
 
@@ -57,12 +65,14 @@ fn polling_disable() {
     let mut settings = Settings::default();
     settings.polling.enabled = false;
 
-    let machine = Box::new(Idle {
-        settings: settings,
-        runtime_settings: RuntimeSettings::default(),
-        firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
-        applied_package_uid: None,
-    }).handle();
+    let machine = Idle::new(
+        InnerState {
+            settings: settings,
+            runtime_settings: RuntimeSettings::default(),
+            firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
+        },
+        None,
+    ).handle();
 
     assert_state!(machine, Park);
 }
@@ -75,12 +85,14 @@ fn polling_enabled() {
     let mut settings = Settings::default();
     settings.polling.enabled = true;
 
-    let machine = Box::new(Idle {
-        settings: settings,
-        runtime_settings: RuntimeSettings::default(),
-        firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
-        applied_package_uid: None,
-    }).handle();
+    let machine = Idle::new(
+        InnerState {
+            settings: settings,
+            runtime_settings: RuntimeSettings::default(),
+            firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
+        },
+        None,
+    ).handle();
 
     assert_state!(machine, Poll);
 }

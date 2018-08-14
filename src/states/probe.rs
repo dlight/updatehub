@@ -5,26 +5,30 @@
 
 use client::Api;
 use failure::{Error, ResultExt};
-use firmware::Metadata;
-use runtime_settings::RuntimeSettings;
-use settings::Settings;
-use states::{download::Download, idle::Idle, poll::Poll, State};
+use states::{download::Download, idle::Idle, poll::Poll, InnerState, State};
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct Probe {
-    pub(crate) settings: Settings,
-    pub(crate) runtime_settings: RuntimeSettings,
-    pub(crate) firmware: Metadata,
+    pub(crate) inner: InnerState,
     pub(crate) applied_package_uid: Option<String>,
+}
+
+impl Probe {
+    pub fn new(inner: InnerState, applied_package_uid: Option<String>) -> Box<State> {
+        Box::new(Self {
+            inner,
+            applied_package_uid,
+        })
+    }
 }
 
 /// Implements the state change for State<Probe>.
 impl State for Probe {
     fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
         let s = *self; // Drop when NLL is stable
-        let settings = s.settings;
-        let mut runtime_settings = s.runtime_settings;
-        let firmware = s.firmware;
+        let settings = s.inner.settings;
+        let mut runtime_settings = s.inner.runtime_settings;
+        let firmware = s.inner.firmware;
         let applied_package_uid = s.applied_package_uid;
 
         use chrono::Duration;
@@ -64,22 +68,26 @@ impl State for Probe {
         match r {
             ProbeResponse::NoUpdate => {
                 debug!("Moving to Idle state as no update is available.");
-                Ok(Box::new(Idle {
-                    settings,
-                    runtime_settings,
-                    firmware,
+                Ok(Idle::new(
+                    InnerState {
+                        settings,
+                        runtime_settings,
+                        firmware,
+                    },
                     applied_package_uid,
-                }))
+                ))
             }
 
             ProbeResponse::ExtraPoll(_) => {
                 debug!("Moving to Poll state due the extra polling interval.");
-                Ok(Box::new(Poll {
-                    settings,
-                    runtime_settings,
-                    firmware,
+                Ok(Poll::new(
+                    InnerState {
+                        settings,
+                        runtime_settings,
+                        firmware,
+                    },
                     applied_package_uid,
-                }))
+                ))
             }
 
             ProbeResponse::Update(u) => {
@@ -91,20 +99,24 @@ impl State for Probe {
                         "Not applying the update package. Same package has already been installed."
                     );
                     debug!("Moving to Idle state as this update package is already installed.");
-                    Ok(Box::new(Idle {
-                        settings,
-                        runtime_settings,
-                        firmware,
+                    Ok(Idle::new(
+                        InnerState {
+                            settings,
+                            runtime_settings,
+                            firmware,
+                        },
                         applied_package_uid,
-                    }))
+                    ))
                 } else {
                     debug!("Moving to Download state to process the update package.");
-                    Ok(Box::new(Download {
-                        settings,
-                        runtime_settings,
-                        firmware,
-                        update_package: u,
-                    }))
+                    Ok(Download::new(
+                        InnerState {
+                            settings,
+                            runtime_settings,
+                            firmware,
+                        },
+                        u,
+                    ))
                 }
             }
         }
@@ -125,14 +137,16 @@ fn update_not_available() {
 
     let mock = create_mock_server(FakeServer::NoUpdate);
 
-    let machine = Box::new(Probe {
-        settings: Settings::default(),
-        runtime_settings: RuntimeSettings::new()
-            .load(tmpfile.to_str().unwrap())
-            .unwrap(),
-        firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
-        applied_package_uid: None,
-    }).handle();
+    let machine = Probe::new(
+        InnerState {
+            settings: Settings::default(),
+            runtime_settings: RuntimeSettings::new()
+                .load(tmpfile.to_str().unwrap())
+                .unwrap(),
+            firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
+        },
+        None,
+    ).handle();
 
     mock.assert();
 
@@ -153,14 +167,16 @@ fn update_available() {
 
     let mock = create_mock_server(FakeServer::HasUpdate);
 
-    let machine = Box::new(Probe {
-        settings: Settings::default(),
-        runtime_settings: RuntimeSettings::new()
-            .load(tmpfile.to_str().unwrap())
-            .unwrap(),
-        firmware: Metadata::new(&create_fake_metadata(FakeDevice::HasUpdate)).unwrap(),
-        applied_package_uid: None,
-    }).handle();
+    let machine = Probe::new(
+        InnerState {
+            settings: Settings::default(),
+            runtime_settings: RuntimeSettings::new()
+                .load(tmpfile.to_str().unwrap())
+                .unwrap(),
+            firmware: Metadata::new(&create_fake_metadata(FakeDevice::HasUpdate)).unwrap(),
+        },
+        None,
+    ).handle();
 
     mock.assert();
 
@@ -181,14 +197,16 @@ fn invalid_hardware() {
 
     let mock = create_mock_server(FakeServer::InvalidHardware);
 
-    let machine = Box::new(Probe {
-        settings: Settings::default(),
-        runtime_settings: RuntimeSettings::new()
-            .load(tmpfile.to_str().unwrap())
-            .unwrap(),
-        firmware: Metadata::new(&create_fake_metadata(FakeDevice::InvalidHardware)).unwrap(),
-        applied_package_uid: None,
-    }).handle();
+    let machine = Probe::new(
+        InnerState {
+            settings: Settings::default(),
+            runtime_settings: RuntimeSettings::new()
+                .load(tmpfile.to_str().unwrap())
+                .unwrap(),
+            firmware: Metadata::new(&create_fake_metadata(FakeDevice::InvalidHardware)).unwrap(),
+        },
+        None,
+    ).handle();
 
     mock.assert();
 
@@ -209,14 +227,16 @@ fn extra_poll_interval() {
 
     let mock = create_mock_server(FakeServer::ExtraPoll);
 
-    let machine = Box::new(Probe {
-        settings: Settings::default(),
-        runtime_settings: RuntimeSettings::new()
-            .load(tmpfile.to_str().unwrap())
-            .unwrap(),
-        firmware: Metadata::new(&create_fake_metadata(FakeDevice::ExtraPoll)).unwrap(),
-        applied_package_uid: None,
-    }).handle();
+    let machine = Probe::new(
+        InnerState {
+            settings: Settings::default(),
+            runtime_settings: RuntimeSettings::new()
+                .load(tmpfile.to_str().unwrap())
+                .unwrap(),
+            firmware: Metadata::new(&create_fake_metadata(FakeDevice::ExtraPoll)).unwrap(),
+        },
+        None,
+    ).handle();
 
     mock.assert();
 
@@ -258,14 +278,16 @@ fn skip_same_package_uid() {
         }
     };
 
-    let machine = Box::new(Probe {
-        settings: Settings::default(),
-        runtime_settings: RuntimeSettings::new()
-            .load(tmpfile.to_str().unwrap())
-            .unwrap(),
-        firmware: Metadata::new(&create_fake_metadata(FakeDevice::HasUpdate)).unwrap(),
-        applied_package_uid: package_uid,
-    }).handle();
+    let machine = Probe::new(
+        InnerState {
+            settings: Settings::default(),
+            runtime_settings: RuntimeSettings::new()
+                .load(tmpfile.to_str().unwrap())
+                .unwrap(),
+            firmware: Metadata::new(&create_fake_metadata(FakeDevice::HasUpdate)).unwrap(),
+        },
+        package_uid,
+    ).handle();
 
     mock.assert();
 
@@ -288,14 +310,16 @@ fn error() {
     // retries to succeed.
     let mock = create_mock_server(FakeServer::ErrorOnce);
 
-    let machine = Box::new(Probe {
-        settings: Settings::default(),
-        runtime_settings: RuntimeSettings::new()
-            .load(tmpfile.to_str().unwrap())
-            .unwrap(),
-        firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
-        applied_package_uid: None,
-    }).handle();
+    let machine = Probe::new(
+        InnerState {
+            settings: Settings::default(),
+            runtime_settings: RuntimeSettings::new()
+                .load(tmpfile.to_str().unwrap())
+                .unwrap(),
+            firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
+        },
+        None,
+    ).handle();
 
     mock.assert();
 

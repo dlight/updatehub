@@ -5,17 +5,21 @@
 
 use easy_process;
 use failure::Error;
-use firmware::Metadata;
-use runtime_settings::RuntimeSettings;
-use settings::Settings;
-use states::{idle::Idle, State};
+use states::{idle::Idle, InnerState, State};
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct Reboot {
-    pub(crate) settings: Settings,
-    pub(crate) runtime_settings: RuntimeSettings,
-    pub(crate) firmware: Metadata,
+    pub(crate) inner: InnerState,
     pub(crate) applied_package_uid: Option<String>,
+}
+
+impl Reboot {
+    pub fn new(inner: InnerState, applied_package_uid: Option<String>) -> Box<State> {
+        Box::new(Self {
+            inner,
+            applied_package_uid,
+        })
+    }
 }
 
 /// Implements the state change for `Reboot`.
@@ -24,9 +28,9 @@ impl State for Reboot {
     // cancelled.
     fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
         let s = *self; // Drop when NLL is stable
-        let settings = s.settings;
-        let runtime_settings = s.runtime_settings;
-        let firmware = s.firmware;
+        let settings = s.inner.settings;
+        let runtime_settings = s.inner.runtime_settings;
+        let firmware = s.inner.firmware;
         let applied_package_uid = s.applied_package_uid;
 
         info!("Triggering reboot");
@@ -38,12 +42,14 @@ impl State for Reboot {
             );
         }
 
-        Ok(Box::new(Idle {
-            settings,
-            runtime_settings,
-            firmware,
+        Ok(Idle::new(
+            InnerState {
+                settings,
+                runtime_settings,
+                firmware,
+            },
             applied_package_uid,
-        }))
+        ))
     }
 }
 
@@ -92,12 +98,14 @@ mod test {
             ),
         );
 
-        let machine = Box::new(Reboot {
-            settings: Settings::default(),
-            runtime_settings: RuntimeSettings::default(),
-            firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
-            applied_package_uid: None,
-        }).handle();
+        let machine = Reboot::new(
+            InnerState {
+                settings: Settings::default(),
+                runtime_settings: RuntimeSettings::default(),
+                firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
+            },
+            None,
+        ).handle();
 
         assert_state!(machine, Idle);
     }
