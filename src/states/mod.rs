@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: MPL-2.0
 //
 
+#![allow(dead_code)]
+
 //! Controls the state machine of the system
 //!
 //! It supports following states, and transitions, as shown in the
@@ -30,6 +32,7 @@ mod park;
 mod poll;
 mod probe;
 mod reboot;
+mod transition;
 
 use Result;
 
@@ -70,6 +73,10 @@ pub(crate) struct InnerState {
 
 pub trait State {
     fn handle(self: Box<Self>) -> Result<Box<State>>;
+
+    fn callback_state_name(&self) -> Option<&str> {
+        None
+    }
 
     fn __private_get_type_id__(&self) -> TypeId
     where
