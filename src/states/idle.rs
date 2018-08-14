@@ -5,7 +5,7 @@
 
 use Result;
 
-use states::{park::Park, poll::Poll, InnerState, State};
+use states::{park::Park, poll::Poll, InnerState, StateTransitioner, State};
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct Idle {
@@ -13,21 +13,31 @@ pub(crate) struct Idle {
     pub(crate) applied_package_uid: Option<String>,
 }
 
+// FIXME: turn this into #[derive(transition)]
 impl Idle {
-    pub fn new(inner: InnerState, applied_package_uid: Option<String>) -> Box<State> {
-        Box::new(Self {
+    pub fn transition(inner: InnerState, applied_package_uid: Option<String>) -> StateTransitioner {
+        StateTransitioner {
             inner,
             applied_package_uid,
-        })
+            transition: Box::new(|inner, applied_package_uid| Box::new(Self {
+                inner,
+                applied_package_uid,
+            }))
+        }
     }
 }
 
 /// Implements the state change for `Idle`. If polling is disabled it
 /// stays in `Idle`, otherwise, it moves to `Poll` state.
 impl State for Idle {
+    // FIXME: turn this into #[derive(inner)]
+    fn inner(&self) -> &InnerState {
+        &self.inner
+    }
+
     // FIXME: when supporting the HTTP API we need allow going to
     // Probe.
-    fn handle(self: Box<Self>) -> Result<Box<State>> {
+    fn handle(self: Box<Self>) -> Result<StateTransitioner> {
         let s = *self; // Drop when NLL is stable
         let settings = s.inner.settings;
         let runtime_settings = s.inner.runtime_settings;
@@ -36,7 +46,7 @@ impl State for Idle {
 
         if !settings.polling.enabled {
             debug!("Polling is disabled, staying on Idle state.");
-            return Ok(Park::new(
+            return Ok(Park::transition(
                 InnerState {
                     settings,
                     runtime_settings,
@@ -47,7 +57,7 @@ impl State for Idle {
         }
 
         debug!("Polling is enabled, moving to Poll state.");
-        Ok(Poll::new(
+        Ok(Poll::transition(
             InnerState {
                 settings,
                 runtime_settings,
@@ -66,14 +76,14 @@ fn polling_disable() {
     let mut settings = Settings::default();
     settings.polling.enabled = false;
 
-    let machine = Idle::new(
-        InnerState {
+    let machine = Box::new(Idle {
+        inner: InnerState {
             settings: settings,
             runtime_settings: RuntimeSettings::default(),
             firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
         },
-        None,
-    ).handle();
+        applied_package_settings: None,
+    }).handle();
 
     assert_state!(machine, Park);
 }
@@ -86,14 +96,14 @@ fn polling_enabled() {
     let mut settings = Settings::default();
     settings.polling.enabled = true;
 
-    let machine = Idle::new(
-        InnerState {
+    let machine = Box::new(Idle {
+        inner: InnerState {
             settings: settings,
             runtime_settings: RuntimeSettings::default(),
             firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
         },
-        None,
-    ).handle();
+        applied_package_settings: None,
+    }).handle();
 
     assert_state!(machine, Poll);
 }

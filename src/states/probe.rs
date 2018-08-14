@@ -7,7 +7,7 @@ use Result;
 
 use client::Api;
 use failure::ResultExt;
-use states::{download::Download, idle::Idle, poll::Poll, InnerState, State};
+use states::{download::Download, idle::Idle, poll::Poll, InnerState, StateTransitioner, State};
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct Probe {
@@ -15,18 +15,28 @@ pub(crate) struct Probe {
     pub(crate) applied_package_uid: Option<String>,
 }
 
+// FIXME: turn this into #[derive(transition)]
 impl Probe {
-    pub fn new(inner: InnerState, applied_package_uid: Option<String>) -> Box<State> {
-        Box::new(Self {
+    pub fn transition(inner: InnerState, applied_package_uid: Option<String>) -> StateTransitioner {
+        StateTransitioner {
             inner,
             applied_package_uid,
-        })
+            transition: Box::new(|inner, applied_package_uid| Box::new(Self {
+                inner,
+                applied_package_uid,
+            }))
+        }
     }
 }
 
 /// Implements the state change for State<Probe>.
 impl State for Probe {
-    fn handle(self: Box<Self>) -> Result<Box<State>> {
+    // FIXME: turn this into #[derive(inner)]
+    fn inner(&self) -> &InnerState {
+        &self.inner
+    }
+
+    fn handle(self: Box<Self>) -> Result<StateTransitioner> {
         let s = *self; // Drop when NLL is stable
         let settings = s.inner.settings;
         let mut runtime_settings = s.inner.runtime_settings;
@@ -70,7 +80,7 @@ impl State for Probe {
         match r {
             ProbeResponse::NoUpdate => {
                 debug!("Moving to Idle state as no update is available.");
-                Ok(Idle::new(
+                Ok(Idle::transition(
                     InnerState {
                         settings,
                         runtime_settings,
@@ -82,7 +92,7 @@ impl State for Probe {
 
             ProbeResponse::ExtraPoll(_) => {
                 debug!("Moving to Poll state due the extra polling interval.");
-                Ok(Poll::new(
+                Ok(Poll::transition(
                     InnerState {
                         settings,
                         runtime_settings,
@@ -101,7 +111,7 @@ impl State for Probe {
                         "Not applying the update package. Same package has already been installed."
                     );
                     debug!("Moving to Idle state as this update package is already installed.");
-                    Ok(Idle::new(
+                    Ok(Idle::transition(
                         InnerState {
                             settings,
                             runtime_settings,
@@ -111,7 +121,7 @@ impl State for Probe {
                     ))
                 } else {
                     debug!("Moving to Download state to process the update package.");
-                    Ok(Download::new(
+                    Ok(Download::transition(
                         InnerState {
                             settings,
                             runtime_settings,
@@ -169,16 +179,16 @@ fn update_available() {
 
     let mock = create_mock_server(FakeServer::HasUpdate);
 
-    let machine = Probe::new(
-        InnerState {
+    let machine = Box::new(Probe {
+        inner: InnerState {
             settings: Settings::default(),
             runtime_settings: RuntimeSettings::new()
                 .load(tmpfile.to_str().unwrap())
                 .unwrap(),
             firmware: Metadata::new(&create_fake_metadata(FakeDevice::HasUpdate)).unwrap(),
         },
-        None,
-    ).handle();
+        applied_package_uid: None,
+    }).handle();
 
     mock.assert();
 
@@ -280,16 +290,16 @@ fn skip_same_package_uid() {
         }
     };
 
-    let machine = Probe::new(
-        InnerState {
+    let machine = Box::new(Probe {
+        inner: InnerState {
             settings: Settings::default(),
             runtime_settings: RuntimeSettings::new()
                 .load(tmpfile.to_str().unwrap())
                 .unwrap(),
             firmware: Metadata::new(&create_fake_metadata(FakeDevice::HasUpdate)).unwrap(),
         },
-        package_uid,
-    ).handle();
+        applied_package_uid: package_uid,
+    }).handle();
 
     mock.assert();
 
@@ -312,16 +322,16 @@ fn error() {
     // retries to succeed.
     let mock = create_mock_server(FakeServer::ErrorOnce);
 
-    let machine = Probe::new(
-        InnerState {
+    let machine = Box::new(Probe {
+        inner: InnerState {
             settings: Settings::default(),
             runtime_settings: RuntimeSettings::new()
                 .load(tmpfile.to_str().unwrap())
                 .unwrap(),
             firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
         },
-        None,
-    ).handle();
+        applied_package_uid: None,
+    }).handle();
 
     mock.assert();
 

@@ -6,7 +6,7 @@
 use Result;
 
 use easy_process;
-use states::{idle::Idle, InnerState, State};
+use states::{idle::Idle, InnerState, StateTransitioner, State};
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct Reboot {
@@ -14,20 +14,28 @@ pub(crate) struct Reboot {
     pub(crate) applied_package_uid: Option<String>,
 }
 
+// FIXME: turn this into #[derive(transition)]
 impl Reboot {
-    pub fn new(inner: InnerState, applied_package_uid: Option<String>) -> Box<State> {
-        Box::new(Self {
+    pub fn transition(inner: InnerState, applied_package_uid: Option<String>) -> StateTransitioner {
+        StateTransitioner {
             inner,
             applied_package_uid,
-        })
+            transition: Box::new(|inner, applied_package_uid| Box::new(Self {
+                inner,
+                applied_package_uid,
+            }))
+        }
     }
 }
 
 /// Implements the state change for `Reboot`.
 impl State for Reboot {
-    // FIXME: When adding state-chance hooks, we need to go to Idle if
-    // cancelled.
-    fn handle(self: Box<Self>) -> Result<Box<State>> {
+    // FIXME: turn this into #[derive(inner)]
+    fn inner(&self) -> &InnerState {
+        &self.inner
+    }
+
+    fn handle(self: Box<Self>) -> Result<StateTransitioner> {
         let s = *self; // Drop when NLL is stable
         let settings = s.inner.settings;
         let runtime_settings = s.inner.runtime_settings;
@@ -43,7 +51,7 @@ impl State for Reboot {
             );
         }
 
-        Ok(Idle::new(
+        Ok(Idle::transition(
             InnerState {
                 settings,
                 runtime_settings,
@@ -99,14 +107,14 @@ mod test {
             ),
         );
 
-        let machine = Reboot::new(
-            InnerState {
+        let machine = Box::new(Reboot {
+            inner: InnerState {
                 settings: Settings::default(),
                 runtime_settings: RuntimeSettings::default(),
                 firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
             },
-            None,
-        ).handle();
+            applied_package_uid: None,
+        }).handle();
 
         assert_state!(machine, Idle);
     }

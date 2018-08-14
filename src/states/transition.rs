@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: MPL-2.0
 //
 
-use failure::Error;
-use states::State;
+use Result;
+
 use std::path::Path;
 
 const STATE_CHANGE_CALLBACK: &str = "state-change-callback";
@@ -15,22 +15,14 @@ pub(crate) enum Transition {
     Cancel,
 }
 
-pub(crate) fn state_change_callback(path: &Path, state: &State) -> Result<Transition, Error> {
+pub(crate) fn state_change_callback(path: &Path, state: &'static str) -> Result<Transition> {
     use easy_process;
     use std::io;
-
-    if state.callback_state_name().is_none() {
-        return Ok(Transition::Continue);
-    }
 
     let callback = path.join(STATE_CHANGE_CALLBACK);
     if !callback.exists() {
         return Ok(Transition::Continue);
     }
-
-    let state = state
-        .callback_state_name()
-        .expect("Callback state name is required");
 
     let output = easy_process::run(&format!("{} {}", &callback.to_string_lossy(), &state))?;
 
@@ -58,16 +50,7 @@ mod test {
     use super::*;
     use tempfile;
 
-    struct TestState {}
-    impl State for TestState {
-        fn callback_state_name(&self) -> Option<&str> {
-            Some("test_state")
-        }
-
-        fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
-            Ok(Box::new(TestState {}))
-        }
-    }
+    const callback_state_name: &'static str = "test_state";
 
     fn create_state_change_callback_hook(content: &str) -> tempfile::TempDir {
         use firmware::tests::create_hook;
@@ -84,7 +67,7 @@ mod test {
         let script = "#!/bin/sh\necho cancel";
         let tmpdir = create_state_change_callback_hook(&script);
         assert_eq!(
-            state_change_callback(&tmpdir.path(), &TestState {}).unwrap(),
+            state_change_callback(&tmpdir.path(), callback_state_name).unwrap(),
             Transition::Cancel,
             "Unexpected result using content {:?}",
             script,
@@ -96,7 +79,7 @@ mod test {
         let script = "#!/bin/sh\necho ";
         let tmpdir = create_state_change_callback_hook(&script);
         assert_eq!(
-            state_change_callback(&tmpdir.path(), &TestState {}).unwrap(),
+            state_change_callback(&tmpdir.path(), callback_state_name).unwrap(),
             Transition::Continue,
             "Unexpected result using content {:?}",
             script,
@@ -106,7 +89,7 @@ mod test {
     #[test]
     fn non_existing_hook() {
         assert_eq!(
-            state_change_callback(&Path::new("/NaN"), &TestState {}).unwrap(),
+            state_change_callback(&Path::new("/NaN"), callback_state_name).unwrap(),
             Transition::Continue,
             "Unexpected result for non-existing hook",
         );
@@ -116,7 +99,7 @@ mod test {
     fn is_error() {
         for script in &["#!/bin/sh\necho 123", "#!/bin/sh\necho 123\ncancel"] {
             let tmpdir = create_state_change_callback_hook(script);
-            assert!(state_change_callback(&tmpdir.path(), &TestState {}).is_err());
+            assert!(state_change_callback(&tmpdir.path(), callback_state_name).is_err());
         }
     }
 }

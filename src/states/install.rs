@@ -6,7 +6,7 @@
 use Result;
 
 use failure::ResultExt;
-use states::{reboot::Reboot, InnerState, State};
+use states::{reboot::Reboot, InnerState, StateTransitioner, State};
 use update_package::UpdatePackage;
 
 #[derive(Debug, PartialEq)]
@@ -15,19 +15,29 @@ pub(crate) struct Install {
     pub(crate) update_package: UpdatePackage,
 }
 
+// FIXME: turn this into #[derive(transition)]
 impl Install {
-    pub fn new(inner: InnerState, update_package: UpdatePackage) -> Box<State> {
-        Box::new(Self {
+    pub fn transition(inner: InnerState, update_package: UpdatePackage) -> StateTransitioner {
+        StateTransitioner {
             inner,
-            update_package,
-        })
+            applied_package_uid: None,
+            transition: Box::new(|inner, _| Box::new(Self {
+                inner,
+                update_package,
+            }))
+        }
     }
 }
 
 impl State for Install {
+    // FIXME: turn this into #[derive(inner)]
+    fn inner(&self) -> &InnerState {
+        &self.inner
+    }
+
     // FIXME: When adding state-chance hooks, we need to go to Idle if
     // cancelled.
-    fn handle(self: Box<Self>) -> Result<Box<State>> {
+    fn handle(self: Box<Self>) -> Result<StateTransitioner> {
         let s = *self; // Drop when NLL is stable
         let settings = s.inner.settings;
         let mut runtime_settings = s.inner.runtime_settings;
@@ -56,7 +66,8 @@ impl State for Install {
         }
 
         info!("Update installed successfully");
-        Ok(Reboot::new(
+
+        Ok(Reboot::transition(
             InnerState {
                 settings,
                 runtime_settings,
@@ -79,16 +90,16 @@ fn has_package_uid_if_succeed() {
     let tmpfile = tmpfile.path();
     fs::remove_file(&tmpfile).unwrap();
 
-    let machine = Install::new(
-        InnerState {
+    let machine = Box::new(Install {
+        inner: InnerState {
             settings: Settings::default(),
             runtime_settings: RuntimeSettings::new()
                 .load(tmpfile.to_str().unwrap())
                 .unwrap(),
             firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
         },
-        get_update_package(),
-    ).handle();
+        applied_package_uid: get_update_package(),
+    }).handle_callbacks();
 
     assert_state!(machine, Reboot);
 }
@@ -105,16 +116,16 @@ fn polling_now_if_succeed() {
     let tmpfile = tmpfile.path();
     fs::remove_file(&tmpfile).unwrap();
 
-    let machine = Install::new(
-        InnerState {
+    let machine = Box::new(Install {
+        inner: InnerState {
             settings: Settings::default(),
             runtime_settings: RuntimeSettings::new()
                 .load(tmpfile.to_str().unwrap())
                 .unwrap(),
             firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
         },
-        get_update_package(),
-    ).handle();
+        applied_package_uid: get_update_package(),
+    }).handle();
 
     assert_state!(machine, Reboot);
 }

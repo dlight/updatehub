@@ -6,7 +6,7 @@
 use Result;
 
 use client::Api;
-use states::{install::Install, InnerState, State};
+use states::{install::Install, InnerState, StateTransitioner, State};
 use std::fs;
 use update_package::{ObjectStatus, UpdatePackage};
 use walkdir::WalkDir;
@@ -17,17 +17,31 @@ pub(crate) struct Download {
     pub(crate) update_package: UpdatePackage,
 }
 
+// FIXME: turn this into #[derive(transition)]
 impl Download {
-    pub fn new(inner: InnerState, update_package: UpdatePackage) -> Box<State> {
-        Box::new(Self {
+    pub fn transition(inner: InnerState, update_package: UpdatePackage) -> StateTransitioner {
+        StateTransitioner {
             inner,
-            update_package,
-        })
+            applied_package_uid: None,
+            transition: Box::new(|inner, _| Box::new(Self {
+                inner,
+                update_package,
+            }))
+        }
     }
 }
 
 impl State for Download {
-    fn handle(self: Box<Self>) -> Result<Box<State>> {
+    // FIXME: turn this into #[derive(inner)]
+    fn inner(&self) -> &InnerState {
+        &self.inner
+    }
+
+    fn callback_state_name(&self) -> Option<&'static str> {
+        Some("download")
+    }
+
+    fn handle(self: Box<Self>) -> Result<StateTransitioner> {
         let s = *self; // Drop when NLL is stable
         let settings = s.inner.settings;
         let runtime_settings = s.inner.runtime_settings;
@@ -72,7 +86,7 @@ impl State for Download {
             .iter()
             .all(|o| o.status(&settings.update.download_dir).ok() == Some(ObjectStatus::Ready))
         {
-            Ok(Install::new(
+            Ok(Install::transition(
                 InnerState {
                     settings,
                     runtime_settings,
@@ -98,14 +112,14 @@ fn skip_download_if_ready() {
     let _ = create_dir_all(&tmpdir);
     let _ = create_fake_object(&settings);
 
-    let machine = Download::new(
-        InnerState {
+    let machine = Box::new(Download {
+        inner: InnerState {
             settings: settings,
             runtime_settings: RuntimeSettings::default(),
             firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
         },
-        get_update_package(),
-    ).handle();
+        update_package: get_update_package(),
+    }).handle();
 
     assert_state!(machine, Install);
 
@@ -155,14 +169,14 @@ fn download_objects() {
     .with_body("1234567890")
     .create();
 
-    let machine = Download::new(
-        InnerState {
+    let machine = Box::new(Download {
+        inner: InnerState {
             settings: settings,
             runtime_settings: RuntimeSettings::default(),
             firmware: Metadata::new(&create_fake_metadata(FakeDevice::NoUpdate)).unwrap(),
         },
         update_package,
-    ).handle();
+    }).handle();
 
     mock.assert();
 
