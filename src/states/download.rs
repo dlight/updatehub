@@ -141,10 +141,10 @@ fn download_objects() {
             &sha256sum
         ).as_str(),
     ).match_header("Content-Type", "application/json")
-        .match_header("Api-Content-Type", "application/vnd.updatehub-v1+json")
-        .with_status(200)
-        .with_body("1234567890")
-        .create();
+    .match_header("Api-Content-Type", "application/vnd.updatehub-v1+json")
+    .with_status(200)
+    .with_body("1234567890")
+    .create();
 
     let machine = Box::new(Download {
         settings: settings,
