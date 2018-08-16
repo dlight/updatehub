@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //
 
+use Result;
+
 use client::Api;
-use failure::Error;
 use states::{install::Install, InnerState, State};
 use std::fs;
 use update_package::{ObjectStatus, UpdatePackage};
@@ -26,7 +27,7 @@ impl Download {
 }
 
 impl State for Download {
-    fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
+    fn handle(self: Box<Self>) -> Result<Box<State>> {
         let s = *self; // Drop when NLL is stable
         let settings = s.inner.settings;
         let runtime_settings = s.inner.runtime_settings;

@@ -31,7 +31,8 @@ mod poll;
 mod probe;
 mod reboot;
 
-use failure::Error;
+use Result;
+
 use firmware::Metadata;
 use runtime_settings::RuntimeSettings;
 use settings::Settings;
@@ -68,7 +69,7 @@ pub(crate) struct InnerState {
 }
 
 pub trait State {
-    fn handle(self: Box<Self>) -> Result<Box<State>, Error>;
+    fn handle(self: Box<Self>) -> Result<Box<State>>;
 
     fn __private_get_type_id__(&self) -> TypeId
     where
@@ -99,14 +100,14 @@ mod tests {
 
     struct A {}
     impl State for A {
-        fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
+        fn handle(self: Box<Self>) -> Result<Box<State>> {
             Ok(Box::new(B {}))
         }
     }
 
     struct B {}
     impl State for B {
-        fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
+        fn handle(self: Box<Self>) -> Result<Box<State>> {
             Ok(Box::new(A {}))
         }
     }

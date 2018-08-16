@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: MPL-2.0
 //
 
-use failure::Error;
+use Result;
+
 use states::{park::Park, poll::Poll, InnerState, State};
 
 #[derive(Debug, PartialEq)]
@@ -26,7 +27,7 @@ impl Idle {
 impl State for Idle {
     // FIXME: when supporting the HTTP API we need allow going to
     // Probe.
-    fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
+    fn handle(self: Box<Self>) -> Result<Box<State>> {
         let s = *self; // Drop when NLL is stable
         let settings = s.inner.settings;
         let runtime_settings = s.inner.runtime_settings;

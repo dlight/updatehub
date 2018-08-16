@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: MPL-2.0
 //
 
-use failure::Error;
+use Result;
+
 use states::{InnerState, State};
 
 #[derive(Debug, PartialEq)]
@@ -23,7 +24,7 @@ impl Park {
 
 /// Implements the state change for `Park`. It stays in `Park` state.
 impl State for Park {
-    fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
+    fn handle(self: Box<Self>) -> Result<Box<State>> {
         debug!("Staying on Park state.");
         Ok(self)
     }

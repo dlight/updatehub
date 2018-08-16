@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //
 
+use Result;
+
 use easy_process;
-use failure::Error;
 use states::{idle::Idle, InnerState, State};
 
 #[derive(Debug, PartialEq)]
@@ -26,7 +27,7 @@ impl Reboot {
 impl State for Reboot {
     // FIXME: When adding state-chance hooks, we need to go to Idle if
     // cancelled.
-    fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
+    fn handle(self: Box<Self>) -> Result<Box<State>> {
         let s = *self; // Drop when NLL is stable
         let settings = s.inner.settings;
         let runtime_settings = s.inner.runtime_settings;

@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //
 
+use Result;
+
 use chrono::{DateTime, Duration, Utc};
-use failure::Error;
 use rand::{self, Rng};
 use states::{probe::Probe, InnerState, State};
 use std::sync::{Arc, Condvar, Mutex};
@@ -28,7 +29,7 @@ impl Poll {
 /// Implements the state change for `Poll`. This state is used to
 /// control when to go to the `Probe`.
 impl State for Poll {
-    fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
+    fn handle(self: Box<Self>) -> Result<Box<State>> {
         let s = *self; // Drop when NLL is stable
         let settings = s.inner.settings;
         let runtime_settings = s.inner.runtime_settings;

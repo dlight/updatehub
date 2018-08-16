@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: MPL-2.0
 //
 
+use Result;
+
 use client::Api;
-use failure::{Error, ResultExt};
+use failure::ResultExt;
 use states::{download::Download, idle::Idle, poll::Poll, InnerState, State};
 
 #[derive(Debug, PartialEq)]
@@ -24,7 +26,7 @@ impl Probe {
 
 /// Implements the state change for State<Probe>.
 impl State for Probe {
-    fn handle(self: Box<Self>) -> Result<Box<State>, Error> {
+    fn handle(self: Box<Self>) -> Result<Box<State>> {
         let s = *self; // Drop when NLL is stable
         let settings = s.inner.settings;
         let mut runtime_settings = s.inner.runtime_settings;
