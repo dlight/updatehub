@@ -5,7 +5,7 @@
 
 use Result;
 
-use states::{park::Park, poll::Poll, InnerState, StateTransitioner, State};
+use states::{park::Park, poll::Poll, Idle, InnerState, StateTransitioner, State};
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct Idle {
@@ -13,16 +13,21 @@ pub(crate) struct Idle {
     pub(crate) applied_package_uid: Option<String>,
 }
 
-// FIXME: turn this into #[derive(transition)]
+// FIXME: turn this into #[derive(transition)] or something
 impl Idle {
-    pub fn transition(inner: InnerState, applied_package_uid: Option<String>) -> StateTransitioner {
-        StateTransitioner {
+    pub(crate) fn new(inner: InnerState, applied_package_uid: Option<String>) -> Self {
+        Self {
             inner,
             applied_package_uid,
-            transition: Box::new(|inner, applied_package_uid| Box::new(Self {
-                inner,
-                applied_package_uid,
-            }))
+        }
+    }
+
+    pub(crate) fn cancel(self) -> Idle {
+        let Self { inner, applied_package_uid } = self;
+
+        Idle {
+            inner,
+            applied_package_uid,
         }
     }
 }
